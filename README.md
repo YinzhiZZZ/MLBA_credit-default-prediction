@@ -31,3 +31,5 @@ ROC-AUC, Precision, Recall, F1, Accuracy
 - Ethan Wong
 - Kevin Wang
 - Ahmed Imtanan
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YinzhiZZZ/MLBA_credit-default-prediction/blob/main/notebooks/01_EDA.ipynb)
