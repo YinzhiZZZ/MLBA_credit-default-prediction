@@ -1,6 +1,6 @@
 # Credit Card Default Prediction
 
-A proof-of-concept ML system that predicts whether a credit card customer will default on their next payment. Built for Carnegie Mellon University MSBA course project.
+A proof-of-concept ML system that predicts whether a credit card customer will default on their next payment. 
 
 ## Team
 
