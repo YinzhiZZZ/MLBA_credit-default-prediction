@@ -1,13 +1,13 @@
 # Credit Card Default Prediction
 
-A proof-of-concept ML system that predicts whether a credit card customer will default on their next payment. 
+A proof-of-concept ML system that predicts whether a credit card customer will default on their next payment. Built for Carnegie Mellon University MSBA course project.
 
 ## Team
 
 - Yinzhi Chen
 - Kevin Wang
 - Ethan Wong
-
+  
 
 ## Business Problem
 
@@ -45,20 +45,27 @@ Primary evaluation metrics are AUC-ROC and Recall, as the dataset is imbalanced 
 ## AWS Architecture
 
 ```
-GitHub (code) ──────────────────────────────────────► SageMaker Notebook
-                                                            ▲        │
-Amazon S3 ──── models/xgboost_model.pkl ────────────────────┘        │ save predictions
-               data/test_batch.csv ─── read batch data ──────────────┘
-                                                                       ▼
-Risk Officer ──── manual input (ipywidgets UI) ──────► Amazon DynamoDB
-                                                       credit-predictions table
+GitHub (code) ──────────────────────────────► EC2 (Streamlit app)
+                                                    ▲        │
+Amazon S3 ──── models/xgboost_model.pkl ────────────┘        │ save predictions
+               data/test_batch.csv ─── read batch data ──────┘
+                                                               ▼
+Risk Officer ──── browser (52.23.161.87:8501) ──► Amazon DynamoDB
+                                                  credit-predictions table
+IAM Role (LabInstanceProfile) ──────────────────► auto auth for EC2
 ```
 
 **Services used:**
-- **Amazon S3**: Stores trained model artifact (`xgboost_model.pkl`) and batch input data (`test_batch.csv`)
-- **Amazon SageMaker Notebook**: Cloud runtime environment that loads the model from S3 and serves an interactive prediction UI
-- **Amazon DynamoDB**: Persists all prediction results (single and batch) for audit and review
+- **Amazon S3**: Stores trained model artifact and batch input data
+- **Amazon EC2** (t3.micro, Ubuntu): Hosts the Streamlit web application
+- **Amazon DynamoDB**: Persists all prediction results for audit and review
+- **IAM Role (LabInstanceProfile)**: Grants EC2 automatic credential-free access to S3 and DynamoDB
 - **GitHub**: Version control for all code and notebooks
+
+**Infrastructure decisions:**
+- Lambda rejected: XGBoost runtime dependencies exceed the 262 MB unzipped package limit
+- SageMaker Endpoint rejected: explicit IAM deny on CreateEndpointConfig in AWS Academy environment
+- EC2 selected: no package size restrictions, operates within Academy IAM permissions
 
 ## Repository Structure
 
@@ -74,14 +81,16 @@ MLBA_credit-default-prediction/
 │   ├── 01_EDA.ipynb                # Exploratory data analysis
 │   ├── 02_logistic.ipynb           # Logistic Regression baseline
 │   ├── 03_nonlinear.ipynb          # Random Forest and XGBoost comparison
-│   └── 04_predict_demo.ipynb       # Demo UI (SageMaker deployment)
+│   └── 04_predict_demo.ipynb       # SageMaker demo UI (backup)
+├── app.py                          # Streamlit web application (primary UI)
+├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
 
 ## Environment Setup
 
-### Local (for running notebooks 01–03)
+### Local (notebooks 01–03)
 
 ```bash
 git clone https://github.com/YinzhiZZZ/MLBA_credit-default-prediction
@@ -91,35 +100,39 @@ pip install -r requirements.txt
 
 Place `UCI_Credit_Card.csv` in the `data/` folder, then run notebooks in order.
 
-### AWS SageMaker (for running the demo)
+### Streamlit Web App (primary UI)
 
-1. Log in to AWS Academy Learner Lab → Start Lab → open AWS Console
-2. Go to **SageMaker → Notebook instances → credit-default-notebook → Open Jupyter**
-3. Create a new notebook with `conda_python3` kernel
-4. Run the following cells in order:
+Accessible at: **http://52.23.161.87:8501**
 
-**Cell 1 — Setup:**
-```python
-import os
-os.chdir('/home/ec2-user/SageMaker')
-os.system('git clone https://github.com/YinzhiZZZ/MLBA_credit-default-prediction')
-os.system('aws s3 cp s3://credit-default-model-mlba/models/xgboost_model.pkl MLBA_credit-default-prediction/models/xgboost_model.pkl')
-print("Setup complete!")
+No login required. To redeploy after session restart:
+
+```bash
+source venv/bin/activate
+cd MLBA_credit-default-prediction
+git pull
+streamlit run app.py --server.port 8501 --server.address 0.0.0.0
 ```
 
-**Cell 2 — Install xgboost:**
-```python
-import subprocess
-subprocess.run(['conda', 'install', '-y', '-c', 'conda-forge', 'xgboost'], capture_output=True, text=True)
-print("xgboost installed!")
-```
+### SageMaker Notebook (backup UI)
 
-**Cell 3 — Run demo UI:**
-Open `notebooks/04_predict_demo.ipynb` and run the prediction cell.
+1. AWS Academy → Start Lab → AWS Console
+2. SageMaker → Notebook instances → credit-default-notebook → Open Jupyter
+3. Open `notebooks/04_predict_demo.ipynb` → Kernel → Restart and Run All
+
+## Demo UI
+
+**Primary: Streamlit Web App (EC2)**
+- Tab 1: Single customer prediction via interactive form
+- Tab 2: Batch prediction reading test_batch.csv directly from S3
+
+**Backup: SageMaker Notebook (ipywidgets)**
+- Interactive widgets inside Jupyter, accessible via AWS Console
+
+All predictions saved to DynamoDB `credit-predictions` table.
 
 ## How to Reproduce Results
 
-Run notebooks 01–03 in order with `random_state=42` throughout. Expected test set results:
+Run notebooks 01–03 with `random_state=42`. Expected results:
 
 | Metric | Logistic Regression | Random Forest | XGBoost |
 |--------|--------------------|--------------| --------|
@@ -127,36 +140,8 @@ Run notebooks 01–03 in order with `random_state=42` throughout. Expected test 
 | Recall | 0.6202 | 0.3429 | 0.6081 |
 | F1 | 0.4613 | 0.4483 | 0.5300 |
 
-## Demo UI
-
-The demo notebook (`04_predict_demo.ipynb`) provides two modes:
-
-**Tab 1 — Single Customer Prediction:**
-Risk officer manually inputs customer profile (credit limit, age, payment status, bill amounts) and receives an instant default probability and risk classification (HIGH / LOW RISK).
-
-**Tab 2 — Batch Prediction:**
-Reads `test_batch.csv` directly from S3, runs predictions on all records, and saves results to DynamoDB. Displays a summary table sorted by default probability.
-
-All predictions are automatically saved to the `credit-predictions` DynamoDB table with timestamp, source, and key customer attributes.
-
-## Dependencies
-
-See `requirements.txt` for full list. Key packages:
-
-```
-pandas
-numpy
-scikit-learn
-xgboost
-joblib
-matplotlib
-seaborn
-ipywidgets
-boto3
-```
-
 ## References
 
 - Yeh, I.-C., & Lien, C.-h. (2009). The comparisons of data mining techniques for the predictive accuracy of probability of default of credit card clients. *Expert Systems with Applications*.
 - Chang, V., et al. (2024). Credit risk prediction using machine learning and deep learning. *Risks, 12*(11), 174.
-- UCI Machine Learning Repository: Default of Credit Card Clients. https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients
+- UCI Machine Learning Repository. https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients
